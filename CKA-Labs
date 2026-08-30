@@ -119,3 +119,855 @@ kubectl delete rs nginx-rs
 kubectl get rs
 kubectl get po
 ---------------------------------------------------------
+Lab 2: Deployment
+=============================================================
+----------------------------------------------------------------------
+Task 1: Write a Deployment yaml and Apply it
+----------------------------------------------------------------------
+#Create a dep-nginx.yaml using content given below
+
+vi dep-nginx.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-dep
+  labels:
+    app: nginx-dep
+spec:
+  replicas: 3
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: nginx-app
+  template:
+    metadata:
+      labels:
+        app: nginx-app
+    spec:
+      containers:
+      - name: nginx-ctr
+        image: nginx:1.11
+        ports:
+        - containerPort: 80
+
+# save the file
+
+#Apply the Deployment yaml created in the previous step
+
+kubectl apply -f dep-nginx.yaml
+
+
+#View the objects created by Kubernetes, Deployment and Replica Set 
+
+kubectl get deployments
+kubectl get rs
+
+
+#Access one of the Pods and view nginx version
+
+kubectl get pods
+kubectl exec -it <pod_name> -- /bin/bash
+
+
+# nginx -v
+# exit
+
+-------------------------------------------------------------------------
+ Task 2: Update the Deployment with a Newer Image
+-------------------------------------------------------------------------
+
+#Update the nginx image in Pod using below
+
+kubectl set image deployment/nginx-dep nginx-ctr=nginx:1.12.2
+
+
+#Describe the deployment and see that the old pods are replaced with newer ones
+
+kubectl describe deployments
+
+
+#Access one of the Pods and view nginx version
+
+kubectl get pods
+kubectl exec -it <pod_name> -- /bin/bash
+
+# nginx -v
+# exit
+
+
+
+-----------------------------------------------------------------------------
+Task 3: Rollback of Deployment 
+-----------------------------------------------------------------------------
+
+#View the history of Deployments
+
+kubectl rollout history deployment/nginx-dep
+
+
+#Rollback the Deployment done in the previous task
+
+kubectl rollout undo deployment/nginx-dep --to-revision=1
+
+kubectl get rs
+
+
+#Access one of the Pods and view nginx version
+
+kubectl get pods
+kubectl exec -it <pod_name> -- /bin/bash
+
+# nginx -v
+# exit
+
+
+
+------------------------------------------------------------------------------
+Task 4: Scaling of Deployments
+------------------------------------------------------------------------------
+
+#View the number of Pod replicas created by the Deployment
+
+kubectl get deployments
+kubectl get pods
+
+
+#Scale up the deployment to have 8 Pod replicas
+
+kubectl scale deployment nginx-dep --replicas=8
+
+
+
+#Check the Pods and deployment to and verify that the number of Pod replicas are 8
+
+kubectl get deployments
+kubectl get pods
+
+
+#Scale down the deployments to 2 Pod replicas
+
+kubectl scale deployment nginx-dep --replicas=2
+
+
+#Check the Pods and deployment to and verify that the number of Pod replicas are down to 2
+
+kubectl get deployments
+kubectl get pods
+
+-----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+#Task 6 Cleanup the resources using below command
+-----------------------------------------------------------------------------
+kubectl delete -f dep-nginx.yaml
+
+---------------------------------------------------------------------------------
+=============================================================
+Lab 4: Services in Kubernetes
+=============================================================
+---------------------------------------------------------------
+# Task 1 Create a pod using below yaml
+---------------------------------------------------------------
+
+vi httpd-pod.yaml
+
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: httpd-pod
+  labels:
+    env: prod 
+    type: front-end
+    app: httpd-ws
+spec:
+  containers:
+  - name: httpd-container
+    image: httpd
+    ports:
+       - containerPort: 80
+
+
+# Apply the pod definition yaml
+
+kubectl create -f httpd-pod.yaml
+
+
+# Check the newly created Pod
+
+kubectl get pods
+
+kubectl get pods -o wide
+
+# Describe Pod using below command
+
+kubectl describe pod httpd-pod
+
+
+----------------------------------------------------------------------
+#Task 2  Setup ClusterIP service
+----------------------------------------------------------------------
+
+# Create  a ClusterIP service using below YAML
+
+vi httpd-svc.yaml
+
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: httpd-svc
+spec:
+  selector:
+    env: prod
+    type: front-end
+    app: httpd-ws
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+  type: ClusterIP
+
+
+ #Apply above definition using below to create a ClusterIP service
+
+kubectl apply -f httpd-svc.yaml
+
+ # Describe the service and verify it has populated the endpoints with IP address matching Pod label
+
+kubectl get svc
+
+kubectl describe svc httpd-svc
+
+ #SSH to one of the machines and rerun the command in the previous task
+
+ curl <Cluster_IP>:<Service_Port>
+
+
+------------------------------------------------------------------------------
+#Task 3  Setup NodePort Service
+------------------------------------------------------------------------------
+
+# Modify the service created in the previous task to type NodePort
+
+vi httpd-svc.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: httpd-svc
+spec:
+  selector:
+    env: prod
+    type: front-end
+    app: httpd-ws
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+  type: NodePort
+
+
+ #  Apply the changes using below command
+
+kubectl apply -f httpd-svc.yaml
+
+
+ # View details of the modified service
+
+kubectl describe svc httpd-svc
+
+ # Validate connectivity using External IP on NodePort using below or via browser
+
+curl <EXTERNAL-IP>:NodePort
+
+ # Get External IPs of the machines in the cluster. SSH to one of the machines and rerun the command in the previous task
+
+kubectl get nodes -o wide | awk '{print $7}'
+
+curl <Cluster_IP>:<Service_Port>
+------------------------------------------------------------------------------------
+#Task 4  Setup LoadBalancer Service
+------------------------------------------------------------------------------------
+
+ # Modify the service created in the previous task to type LoadBalancer 
+
+vi httpd-svc.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: httpd-svc
+spec:
+  selector:
+    env: prod
+    type: front-end
+    app: httpd-ws
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+  type: LoadBalancer
+
+
+ #  Apply the changes using below command
+
+kubectl apply -f httpd-svc.yaml
+
+
+ # Verify that a new service of type LoadBalancer has been created
+
+kubectl get svc
+
+kubectl describe svc httpd-svc
+
+ 
+ # Access the LoadBalancer on the kops instance or via browser
+
+curl <LoadBalancer_DNS>
+
+
+
+-------------------------------------------------------------------------------
+#Task 5 Delete and recreate httpd Pod
+-------------------------------------------------------------------------------
+# Delete the existing httpd-pod using below
+
+kubectl delete -f httpd-pod.yaml
+
+# View the service details and notice that the Endpoints field is empty
+
+kubectl describe svc httpd-svc
+
+# Recreate the httpd Pod and view service details Verify that the endpoints is updated with new Pod IP
+
+kubectl apply -f httpd-pod.yaml
+
+kubectl describe svc httpd-svc
+
+--------------------------------------------------------------------------------
+#Task 6 Cleanup the resources using below command
+----------------------------------------------------------------------------------
+
+kubectl delete -f httpd-pod.yaml
+kubectl delete -f httpd-svc.yaml
+--------------------------------------------------------------------------
+===============================================================================
+Lab 6  Blue/Green Deployment on Kubernetes 
+----------------------------------------------------------------------------
+vi web-blue.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-blue
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: web-blue
+      type: web-app
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: web-blue
+        type: web-app
+    spec:
+      containers:
+      - image: mandarct/web-blue:v1
+        name: web-blue
+        ports:
+        - containerPort: 80
+          protocol: TCP
+		 
+kubectl create -f web-blue.yaml
+kubectl get deploy
+kubectl get pods
+
+Now create NodePort service to access application
+
+		 
+vi svc-web-lb.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-app-svc-lb
+spec:
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    type: web-app
+  type: NodePort
+  ports:
+   - port: 80
+     targetPort: 80
+	 
+kubectl create -f svc-web-lb.yaml
+kubectl get svc
+
+access you application
+
+
+to it Green deployment deploy following yaml file
+
+vi web-green.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-green
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: web-green
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: web-green
+        type: web-app
+    spec:
+      containers:
+      - image: mandarct/web-green:v1
+        name: web-green
+        ports:
+        - containerPort: 80
+          protocol: TCP
+
+kubectl create -f web-green.yaml
+kubectl get deployment
+kubectl get pods
+
+access this application using same service that we create previously.
+
+some time will to blue deployment web page, some time green webpage
+
+If you delete the web-green deployment, load-balancer will start sending traffic only to the blue pods
+
+kubectl describe svc web-app-svc-lb
+
+# Now delete blue deployment you can only access green deployment
+kubectl delete -f web-blue.yaml
+kubectl get po
+----------------------------------------------------------------------
+=============================================================
+Lab 5: DaemonSet in Kubernetes
+=============================================================
+
+#Create a DaemonSet using below yaml
+
+vi ds-pod.yaml
+----------------------------------------------
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: redis-ds
+  labels:
+    app: redis-ds
+spec:
+  selector:
+    matchLabels:
+      app: redis-app
+  template:
+    metadata:
+       labels:
+           app: redis-app
+    spec:
+      containers:
+      - name: redis-ctr
+        image: redis
+
+-----------------------------------------------
+
+#Apply the yaml definition to create a fluent-ds DaemonSet
+
+kubectl apply -f ds-pod.yaml
+
+#Check the available daemonsets in kubernetes cluster
+
+kubectl get ds redis-ds
+
+
+#Verify that pods for fluent are created one for each node using DaemonSet
+
+kubectl get pods -o wide
+
+#Cleanup the DaemeonSet using below 
+
+kubectl delete -f ds-pod.yaml
+
+#Verify the pods to find (all) the fluentd pods being deleted from each of the nodes
+
+kubectl get pods
+===========================================================================================
+=============================================================
+Lab 6: Persistent Volume in Kubernetes
+=============================================================
+Volumes
+-------------------
+Task:1-EmptyDir
+------------------
+
+vi emptydir.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    run: test-pod
+  name: test-pod
+spec:
+  volumes:
+  - name: volume-1
+    emptyDir: {}                # /var/lib/kubelet under this stores the data uder node where the pod is creating
+  containers:
+  - image: nginx
+    name: ng-ctr
+    ports:
+    - containerPort: 80
+    volumeMounts:
+    - name: volume-1
+      mountPath: /app
+
+save the file
+kubectl create -f emptydir.yaml
+kubectl get pods
+kubectl get pods -o wide
+#Go insdie the pod and create file in the /app dir
+kubectl exec -it test-pod  -- bash
+cd /app
+touch f1 f2
+ls
+exit
+# now you are back to kops server
+kubectl delete pod test-pod
+kubectl get pod
+
+Task:2-HostPath
+=================
+# Create file
+vi  nginxpod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: ws
+  name: host-pod
+spec:
+  nodeName: i-006f490d250f417ca
+  volumes:
+  - name: hostpath-volume
+    hostPath:
+      path: /pvdir
+  containers:
+  - image: nginx
+    name: ng-ctr
+    ports:
+    - containerPort: 80
+    volumeMounts:
+    - name: hostpath-volume
+      mountPath: /usr/share/nginx/html/
+save the file
+
+ kubectl create -f nginxpod.yaml
+ k get pod
+ kubectl expose pod host-pod --port 80 --type NodePort --name host-svc
+ k get svc
+ kubectl describe svc
+ # take node ip and port no to access the website
+
+#Create another pod to access the same volume
+--------------------------------------------------
+vi httppod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: httpd
+  name: httpd-pod
+spec:
+  nodeName: i-006f490d250f417ca
+  volumes:
+  - name: httpd-volume
+    hostPath:
+      path: /pvdir
+  containers:
+  - image: httpd
+    name: httpd-ctr
+    ports:
+    - containerPort: 80
+    volumeMounts:
+    - name: httpd-volume
+      mountPath: /usr/local/apache2/htdocs/
+
+save the file
+ kubectl create -f httppod.yaml
+ kubectl get pod
+ kubectl exec -it httpd-pod  -- bash
+ ls 
+ cd htdocs
+ cat index.html
+
+# you can see the same data in the file
+exit
+kubectl get pod
+kubectl delete pod  host-pod
+kubectl delete pod httpd-pod
+kubectl get pod
+----------------------------------------------------------------------------
+# Task 1  Get Node Label and Create Custom Index.html on Node
+----------------------------------------------------------------------------
+
+# View worker nodes and their labels
+
+kubectl get nodes --show-labels | grep role=node
+
+
+# make a note of the kubernetes.io/hostname label of one of the nodes
+
+
+# ssh to one of the nodes using below
+
+ ssh -t ubuntu@<node_public_IP> 
+
+
+
+# Switch to root and run the following commands. A directory with custom index.html is created for PersistentVolume mount 
+
+sudo su
+mkdir /pvdir
+echo Hello World! > /pvdir/index.html
+
+
+--------------------------------------------------------------------------------
+# Task 3 - Create a Local Persistent Volume
+--------------------------------------------------------------------------------
+
+vi pv-volume.yaml
+
+
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: pv-volume
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteMany
+  hostPath:
+    path: "/pvdir"
+
+
+
+kubectl apply -f pv-volume.yaml
+
+kubectl get pv
+
+kubectl describe pv pv-volume
+
+------------------------------------------------------------------------------------
+# Task 4  - Create a PV Claim
+------------------------------------------------------------------------------------
+vi pv-claim.yaml
+
+
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: pv-claim
+spec:
+  storageClassName: manual
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+
+kubectl apply -f pv-claim.yaml
+----------------------------------------------------------------------------------------
+# Task 5  - Create nginx Pod with NodeSelector
+----------------------------------------------------------------------------------------
+vi pv-pod.yaml
+
+
+kind: Pod
+apiVersion: v1
+metadata:
+  name: pv-pod
+spec:
+  volumes:
+    - name: pv-storage
+      persistentVolumeClaim:
+        claimName: pv-claim
+  containers:
+     - name: pv-container
+       image: nginx
+       ports:
+          - containerPort: 80
+            name: "http-server"
+       volumeMounts:
+          - mountPath: "/usr/share/nginx/html"
+            name: pv-storage
+  nodeSelector:
+    kubernetes.io/hostname: ip-172-20-33-138.ap-south-1.compute.internal
+
+# Apply the Pod yaml created in the previous step
+
+kubectl apply -f pv-pod.yaml
+
+# View Pod details and see that is created on the required node
+
+kubectl get pods -o wide
+
+# Access shell on a container running in your Pod
+
+kubectl exec -it pv-pod -- /bin/bash
+
+# Run the following commands in the container to verify PersistentVolume
+
+ apt-get update
+ apt-get install curl -y
+ curl localhost
+ exit
+
+# delete the resources created in this lab.
+kubectl delete -f pv-pod.yaml
+kubectl delete -f pv-claim.yaml
+kubectl delete -f pv-volume.yaml
+=============================================================
+-------------------------------------------------------------
+-------------------------------------------------------------
+Static and Dynamic volume on Bootstap Cluster
+-----------------------------------------------------------------
+Step-1 Create 2gb volume by manually in the same region where you have created your cluster
+step-2 install csi drivers as below
+kubectl apply -k "github.com/kubernetes-sigs/aws-ebs-csi-driver/deploy/kubernetes/overlays/stable/?ref=release-1.30"
+kubectl get pod -n kube-system
+or
+kubectl get pods -n kube-system | grep ebs
+step3- create and Attach the IAM policy "AmazonEBSCSIDriverPolicy" to the EC2 instance role.
+
+root@Controlplain:~# vi static-pv.yml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: static-pv
+spec:
+  capacity:
+    storage: 2Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  csi:
+    driver: ebs.csi.aws.com
+    volumeHandle: vol-0e6b46068fc18bcdb   # <-- Your EBS volume ID
+    fsType: ext4
+  persistentVolumeReclaimPolicy: Retain
+
+# kubectl apply -f static-pv.yml
+
+root@Controlplain:~# vi static-pvc.yml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: static-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+
+# kubectl apply -f static-pvc.yml
+
+root@Controlplain:~# vi pod-staticpv.yml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-static
+spec:
+  volumes:
+    - name: static-storage
+      persistentVolumeClaim:
+        claimName: static-pvc
+  containers:
+    - name: myapp
+      image: nginx
+      volumeMounts:
+        - mountPath: "/data"
+          name: static-storage
+
+
+# kubectl apply -f pod-staticpv.yml
+-------------------------------------------
+First you need to delete Pod,pvc and PV
+kubectl delete -f pod-staticpv.yml
+kubectl delete -f static-pvc.yml
+kubectl delete -f static-pv.yml
+------------------------------------------------
+Dynamic volume
+------------------------------------------------
+root@Controlplain:~# vi dy-pv.yml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3-sc
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  fsType: ext4
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+
+# kubectl apply -f dy-pv.yml
+
+root@Controlplain:~# vi  dy-pvc.yml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dynamic-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 3Gi
+  storageClassName: gp3-sc
+
+# kubectl apply -f dy-pvc.yml
+
+root@Controlplain:~# vi dypod.yml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-dynamic
+spec:
+  volumes:
+    - name: dynamic-storage
+      persistentVolumeClaim:
+        claimName: dynamic-pvc  
+  containers:
+    - name: myapp
+      image: nginx
+      volumeMounts:
+        - mountPath: "/data"
+          name: dynamic-storage
+  
+
+# kubectl apply -f dypod.yml
+---------------------------------
+Delete fisrt pod,pvc,pv
+kubectl delete -f dypod.yml
+kubectl delete -f dy-pvc.yml
+kubectl delete -f dy-pv.yml
+---------------------------------------
