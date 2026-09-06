@@ -1,0 +1,82 @@
+Step:1
+===============================================
+
+create multiple users using scrip
+=======================================
+vi create_users.sh
+
+#!/bin/bash
+
+# Define users and passwords
+users=("user11" "user12" "user13" "user14" "user15")
+passwords=("Pass@123" "Pass@123" "Pass@123" "Pass@123" "Pass@123")
+
+# Loop through users
+for i in ${!users[@]}
+do
+    username=${users[$i]}
+    password=${passwords[$i]}
+
+    echo "Creating user: $username"
+
+    # Create user with home directory and bash shell
+    sudo useradd -m -s /bin/bash $username
+
+    # Set password
+    echo "$username:$password" | sudo chpasswd
+
+    # if you wanted add use into docker group (note: this command will run only after installation of docker)
+    # sudo usermod -aG docker $username
+
+    # Optional: force password change at first login
+     #sudo chage -d 0 $username
+
+done
+
+echo " All users created successfully"
+
+
+# save the file
+
+chmod +x create_users.sh
+
+sudo ./create_users.sh
+
+
+Step:2
+===============================================
+
+# create script to access Kubernetes by these users 
+
+ vi  k8susers.sh
+
+for user in user11 user12 user13 user14 user15
+do
+  sudo mkdir -p /home/$user/.kube
+  sudo cp /home/ubuntu/.kube/config /home/$user/.kube/config
+  sudo chown -R $user:$user /home/$user/.kube
+  sudo mkdir -p /home/$user/.ssh
+  sudo cp /home/ubuntu/.ssh/authorized_keys /home/$user/.ssh/
+  sudo chown -R $user:$user /home/$user/.ssh
+  sudo chmod 700 /home/$user/.ssh
+  sudo chmod 600 /home/$user/.ssh/authorized_keys
+done
+
+echo " All users created successfully"
+
+
+Step:3
+===============================================
+sudo nano /etc/ssh/sshd_config
+
+
+PasswordAuthentication yes
+PermitRootLogin no
+AllowUsers user1 ubuntu    # add user here
+
+# save file 
+
+sudo systemctl restart ssh
+
+
+ssh -i your-key.pem user11@<EC2-IP>
