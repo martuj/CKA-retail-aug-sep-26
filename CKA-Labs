@@ -1580,3 +1580,917 @@ View the Pod events and see that readiness probe has failed
 kubectl describe pods readiness-pod
  
 --------------------------------------------------------------------
+
+===================================================================================
+
+Lab 7: ConfigMap
+
+Task 1: Setting container environment variables using configmap
+-----------------------------------------------------------------
+
+imperative way to create config-map in environment variables:
+
+kubectl create configmap my-configmap --from-literal mydata=hello_world --dry-run=client -o yaml
+
+vi config-map.yaml
+
+apiVersion: v1
+data:
+  mydata: hello_world
+kind: ConfigMap
+metadata:
+  name: my-configmap
+
+kubectl create -f config-map.yaml
+ kubectl get configmaps
+
+
+vi cm-pod.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cm-pod
+spec:
+  containers:
+  - name: quota-ctr
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+    env:
+    - name: hlo
+      valueFrom:
+        configMapKeyRef:
+           name: my-configmap
+           key: mydata
+
+kubectl apply -f cm-pod.yaml
+kubectl exec -it cm-pod -- bash
+echo $hlo
+hello_world
+exit
+
+----------------------------------------------------------------
+
+Task 2: Setting configuration file with volume using ConfigMap
+----------------------------------------------------------------
+vi redis-cm.yaml
+ 
+apiVersion: v1
+data:
+  redis-config: |
+    maxmemory 2mb
+    maxmemory-policy allkeys-lru
+kind: ConfigMap
+metadata:
+  name: example-redis-config
+  namespace: default
+
+kubectl create -f redis-cm.yaml 
+kubectl get cm
+kubectl describe cm example-redis-config 
+
+Create pod
+
+vi redis-pod.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: redis
+spec:
+  containers:
+  - name: redis
+    image: redis
+    env:
+    - name: MASTER
+      value: "true"
+    ports:
+    - containerPort: 6379
+    volumeMounts:
+    - mountPath: /redis-master-data
+      name: data
+    - mountPath: /redis-master
+      name: config
+  volumes:
+    - name: data
+      emptyDir: {}
+    - name: config
+      configMap:
+        name: example-redis-config
+        items:
+        - key: redis-config
+          path: redis.conf
+
+kubectl create -f redis-pod.yaml
+read config map's file 
+kubectl exec -it redis -- cat /redis-master/redis.conf
+
+-------------------------------------------------------------------------------
+Task 3: Creating a Secret
+-------------------------------------------------------------------------------
+vi secrets.yaml
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-credentials
+type: Opaque
+data:
+  ##all below values are base64 encoded
+  ##rootpw is root
+  ##user is user
+  ##password is mypwd
+  rootpw: cm9vdAo=
+  user: dXNlcgo=
+  password: bXlwd2QK
+  
+kubectl create -f secrets.yaml
+kubectl get secrets
+kubectl describe secrets mysql-credentials
+see your encoded secrets 
+kubectl get secrets mysql-credentials -o yaml
+
+Task: 4 create pod with secret
+
+vi secret-pod.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: secret-pod
+spec:
+  containers:
+  - name: quota-ctr
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+    envFrom:
+    - secretRef:
+        name: mysql-credentials
+
+kubectl create -f secret-pod.yaml
+
+kubectl get pods
+
+To check created secrets
+kubectl get secret
+
+To describe a secret
+kubectl describe secret <secret-name>
+
+To decode the encrypted data
+echo "<data>" | base64 -d
+
+=====================================================================================
+
+=================================================================================
+
+Lab 9: Pod and Container level security using Context
+---------------------------------------------------------
+Task 1: Set the security context for a pod
+---------------------------------------------------
+File 1: sc-demo-1.yaml
+This YAML file demonstrates the implementation of security context at the pod level.
+
+vi sc-demo-1.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: security-context-demo
+spec:
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 3000
+    fsGroup: 2000
+  volumes:
+  - name: demo-vol
+    emptyDir: {}
+  containers:
+  - name: sc-demo
+    image: busybox:1.28
+    command: [ "sh", "-c", "sleep 1h" ]
+    volumeMounts:
+    - name: demo-vol
+      mountPath: /data/demo
+
+To apply this file, use the following command:
+kubectl apply -f sc-demo-1.yaml
+
+To access the shell inside the pod, run the following command:
+kubectl exec -it security-context-demo -- /bin/sh
+
+
+To check the user ID, group ID, and filesystem ID, run the following commands:
+id
+ps aux
+
+The id command displays the user ID and group ID of the current user running inside the pod. 
+The ps aux command shows the processes running inside the pod along with their details.
+
+Since a volume is mounted, you can navigate to the mounted directory and perform file operations:
+cd /data/demo
+echo hello devopspro >> myfile
+ls -l
+
+---------------------------------------------------
+Task 2: Set the security context for a container
+---------------------------------------------------
+
+File 2: sc-demo-2.yaml
+This YAML file demonstrates the implementation of security context at both the pod and container level.
+
+vi sc-demo-2.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: security-context-demo-2
+spec:
+  securityContext:
+    runAsUser: 1000
+  containers:
+  - name: sc-demo-2
+    image: gcr.io/google-samples/node-hello:1.0
+    securityContext:
+      runAsUser: 2000
+
+To apply this file, use the following command:
+kubectl apply -f sc-demo-2.yaml
+
+To access the shell inside the pod, run the following command:
+kubectl exec -it security-context-demo-2 -- /bin/sh
+
+To check the applied security context on the container, run the following commands:
+ps aux
+id
+
+
+---------------------------------------------------
+Task 3: Set the security context for a container
+---------------------------------------------------
+File 3: sc-demo-3.yaml
+This YAML file demonstrates the addition of the NET_ADMIN capability to a container.
+
+vi sc-demo-3.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: security-context-demo-3
+spec:
+  containers:
+  - name: sc-demo-3
+    image: ubuntu
+    command: [ "sh", "-c", "sleep 1h" ]
+    securityContext:
+      capabilities:
+        add: ["NET_ADMIN"]
+
+To apply this file, use the following command:
+kubectl apply -f sc-demo-3.yaml
+
+To access the shell inside the pod, run the following command:
+kubectl exec -it security-context-demo-3 -- /bin/bash
+
+
+To install the required package, run the following commands inside the pod:
+apt update
+apt install iproute2
+
+#iptoute2 provides advanced IP routing and network devices configuration.
+
+To check the network interfaces, run the following command:
+ip link show
+
+To add an IP address to the eth0 network interface, use the following command:
+ip addr add 192.168.0.10/24 dev eth0
+
+To check the added IP address, run the following command:
+ip addr show eth0
+
+
+
+=================================================================================
+
+Lab 10: Kubernetes Network Policy
+
+--------------------------------------------------
+Task 1: Network policy with Pod labels
+--------------------------------------------------
+#Create a nginx pod and service with labels role=backend
+
+kubectl run backend --image nginx -l role=backend
+kubectl expose po backend --port 80 
+
+kubectl get pod
+kubectl get svc
+
+#Create a new busybox pod and verify that it can access the backend service.
+Then, exit out of the container
+
+kubectl run --rm -it --image=busybox net-policy 
+wget -qO- -T3 http://backend
+exit
+
+#Create a network policy which uses labels to deny all ingress traffic
+
+vi np-deny-all.yml
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-policy
+spec:
+  podSelector:
+    matchLabels:
+      role: backend
+  ingress: []
+
+kubectl create -f np-deny-all.yml
+kubectl get networkpolicies
+
+#Create a new busybox pod again and verify that it cannot access the backend service
+
+kubectl run --rm -it --image=busybox net-policy
+wget -qO- -T3 http://backend
+it will show timeout
+exit
+
+#Modify the network policy to allow traffic with matching Pod labels 
+Inspect the network policy and notice the selectors
+
+vi np-pod-label-allow.yml
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-policy
+spec:
+  podSelector:
+    matchLabels:
+      role: backend
+  ingress:
+  - from:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          role: frontend
+		  
+
+#before applying this yaml describe networkpolicies to check rule
+kubectl apply -f np-pod-label-allow.yml
+kubectl describe networkpolicies backend-policy
+
+kubectl apply -f np-pod-label-allow.yml
+
+kubectl describe networkpolicies backend-policy
+
+#Run the busybox pod again and verify that it is able to access backend service.
+Notice the labels on the Pod. Inspect the network policy and notice the selectors
+
+kubectl run --rm -it --image=busybox --labels role=frontend net-policy
+wget -qO- -T3 http://backend
+exit
+#Run the busybox pod again without labels and notice that the backend service is not accessible any more.
+
+kubectl run --rm -it --image=busybox net-policy 
+wget -qO- -T3 http://backend
+exit
+
+
+--------------------------------------------------------
+Task 2: Using WordPress and MySQL as Deployments(skip)
+--------------------------------------------------------
+kubectl create ns networkdemo 
+
+kubectl create -f https://s3.ap-south-1.amazonaws.com/files.cloudthat.training/devops/kubernetes-cka/mysql_deploy.yaml -n networkdemo
+
+
+kubectl create -f https://s3.ap-south-1.amazonaws.com/files.cloudthat.training/devops/kubernetes-cka/wordpress_deploy.yaml -n networkdemo
+
+kubectl get pod,svc -n networkdemo 
+
+vim deny-all.yaml 
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: networkdemo
+spec:
+  podSelector:
+    matchLabels: {}
+  policyTypes:
+  - Ingress
+
+kubectl apply -f deny-all.yaml -n networkdemo
+
+==================================================================================
+Lab 11: RBAC 
+=================
+The role.yaml file contains the configuration for creating a role named pod-reader. 
+The role allows the user to perform actions like get, watch, and list on pods resources.
+
+vi role.yaml 
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: default
+  name: pod-reader
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "watch", "list"]
+
+To apply this role:
+kubectl apply -f role.yaml
+To check the created role:
+kubectl get role
+
+Role Binding
+-----------
+The rolebinding.yaml file defines a role binding named read-pods
+that binds the pod-reader role to the user jack in the default namespace.
+
+vi rolebinding.yaml
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: read-pods
+  namespace: default
+subjects:
+- kind: User
+  name: jack
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: pod-reader
+  apiGroup: rbac.authorization.k8s.io
+
+To apply this role binding:
+kubectl apply -f rolebinding.yaml
+To check the created role binding:
+kubectl get rolebinding
+To check the permissions of the jack user:
+kubectl auth can-i get pod --as jack
+
+
+==========================================================
+Cluster Role
+==========================================================
+The clusterrole.yaml file contains the configuration for creating a cluster role named secret-reader. 
+This cluster role allows the user to perform actions like get, watch, and list on secrets resources.
+
+vi clusterrole.yaml
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: secret-reader
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "watch", "list"]
+
+To apply this cluster role:
+kubectl apply -f clusterrole.yaml
+To check the created cluster role:
+kubectl get clusterrole | grep secret-reader
+
+Cluster Role Binding
+=====================
+The clusterrolebinding.yaml file contains the configuration for creating a cluster role binding named read-secrets-global. 
+This cluster role binding binds the secret-reader cluster role to the user riya globally.
+
+vi clusterrolebinding.yaml
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: read-secrets-global
+subjects:
+- kind: User
+  name: test
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: secret-reader
+  apiGroup: rbac.authorization.k8s.io
+
+To apply this cluster role binding:
+kubectl apply -f clusterrolebinding.yaml
+
+To check the created cluster role binding:
+kubectl get clusterrolebinding | grep read-secrets-global
+
+To check the permissions of the test user across all namespaces:
+kubectl auth can-i get secret --as test -A
+
+==================================================================================
+==================================================================================
+Setting Up Your Service Account
+====================================================================================
+To create a Service Account, use the following commands:
+kubectl create sa mysa
+
+To create a token for the Service Account "mysa" :
+kubectl create token mysa
+
+Defining Permissions with Roles
+
+
+vi sarole.yaml
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: default
+  name: pod-reader
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  verbs:
+  - get
+  - watch
+  - list
+
+kubectl apply -f sarole.yaml 
+
+To associate the Role with the Service Account, create a RoleBinding. 
+
+vi mysa.yml
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  annotations:
+    kubernetes.io/enforce-mountable-secrets: "true"
+  name: mysa
+  namespace: default
+
+kubectl apply -f mysa.yml
+kubectl get sa
+
+vi sarolebinding.yaml
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: read-pods
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: mysa
+  namespace: default
+roleRef:
+  kind: Role
+  name: pod-reader
+  apiGroup: rbac.authorization.k8s.io
+
+kubectl apply -f sarolebinding.yaml 
+
+
+Pod definition with the appropriate serviceAccountName. 
+
+vi podattach.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx
+spec:
+  serviceAccountName: mysa
+  containers:
+  - name: nginx
+    image: nginx:1.14.2
+    ports:
+    - containerPort: 80
+
+kubectl apply -f podattach.yaml 
+
+
+Ensuring Access: Verifying Permissions
+
+To verify the access permissions of the Service Account, use the following command:
+kubectl describe pod nginx
+kubectl auth can-i get pods --as=system:serviceaccount:default:mysa
+
+=====================================================================================
+: RBAC (Self)
+--------------------------------------------------------------------
+Task 1: Create a new ServiceAccount demo-sa
+---------------------------------------------------------------------
+kubectl get ns
+kubectl create ns purple
+kubectl create sa -n purple demo-sa 
+kubectl get ns
+
+---------------------------------------------------------------------
+Task 2: Create a new Role and RoleBinding 
+---------------------------------------------------------------------
+kubectl create role demo-role --verb=list --resource=pods -n purple
+kubectl create rolebinding demo-rb --role=demo-role --serviceaccount=purple:demo-sa -n purple
+
+---------------------------------------------------------------------
+Task 3: Test whether you are able to do a GET request to Kubernetes API 
+---------------------------------------------------------------------
+kubectl run test --image=nginx -n purple
+kubectl exec -it -n purple test -- /bin/bash 
+curl -v --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" https://kubernetes.default/api/v1/namespaces/purple/pods 
+## Note: It sends an authenticated HTTPS request to the Kubernetes API server using the pod’s ServiceAccount credentials and CA cert, 
+##to list all pods in the purple namespace.
+
+
+vi pod-sa.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-01
+  namespace: purple
+spec:
+  serviceAccountName: demo-sa
+  containers:
+  - name: my-container
+    image: nginx
+
+kubectl exec -it -n purple test -- /bin/bash 
+curl -v --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" https://kubernetes.default/api/v1/namespaces/purple/pods 
+
+
+==================================================================================
+Lab 12: Node Labelling and Constraining pods in Kubernetes
+
+---------------------------------------------------------------------
+Task 1: Deploy pod in specific node based on node-name / hostname
+---------------------------------------------------------------------
+
+vi node-name.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-nodename
+  labels:
+    env: test
+spec:
+  containers:
+  - name: nginx
+    image: nginx
+    imagePullPolicy: IfNotPresent
+  nodeName: {node-name / hostname }
+
+kubectl create -f node-name.yaml
+kubectl get pods -o wide 
+see your pod in defined node
+ 
+---------------------------------------------------------------------
+Task 1.1: Node labeling and constraining pods
+---------------------------------------------------------------------
+list node labels
+kubectl get nodes --show-labels
+
+kubectl label nodes <node_name> disktype=ssd
+
+list you nodes to check labels 
+kubectl get nodes --show-labels | grep "disktype=ssd"
+
+vi nlns-pod.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nlns-nginx-pod
+  labels:
+    env: test
+spec:
+  containers:
+  - name: nlns-nginx-ctr
+    image: nginx
+  nodeSelector:
+    disktype: ssd
+
+
+kubectl apply -f nlns-pod.yaml
+kubectl get pods -o wide
+
+---------------------------------------------------------------------
+Task 2: Cleanup
+---------------------------------------------------------------------
+#Delete the objects created in this lab.
+
+kubectl delete -f nlns-pod.yaml 
+kubectl label nodes <node_name> disktype-
+ 
+#Verify that the label is deleted.
+
+kubectl get nodes --show-labels | grep ssd 
+
+Taint and Toleration
+--------------------------
+Taint a node with the Noschedule taint effect and set the key-value pair 
+
+Use the following command to apply the taint to the desired node:
+
+kubectl taint nodes <node_name> key1=value1:NoSchedule
+
+kubectl describe node node01
+
+Create a pod and check the node on which it is scheduled.
+
+kubectl run test --image=nginx
+kubectl get pod
+kubectl get pod -o wide
+
+Create a pod and add a toleration to it with the following specifications:
+Key: key1
+Operator: Equal
+Value: value1
+Effect: Noschedule
+
+Use the following YAML definition to create the pod with the toleration:
+
+vi taintpod.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mypod1
+spec:
+  containers:
+  - name: mycontainer
+    image: nginx
+  tolerations:
+   - key: key1
+     operator: Equal
+     value: value1
+     effect: NoSchedule
+
+Remove the taint effect from the node that was previously tainted.
+
+kubectl taint nodes <node_name> key1=value1:NoSchedule-
+
+====================================================================================
+Lab 13: Advanced Pod Scheduling
+
+---------------------------------------------------------------------
+Task 1: Node Affinity
+---------------------------------------------------------------------
+vi node-aff-pref.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: na-nginx-pod1
+spec:
+  containers:
+  - name: na-nginx-ctr1
+    image: nginx
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 1
+        preference:
+          matchExpressions:
+          - key: disktype
+            operator: In
+            values:
+            - ssd
+
+kubectl apply -f node-aff-pref.yaml
+kubectl get pods -o wide
+
+Remove node label 
+
+kubectl label nodes <node_name> disktype-
+deploy same pod again it is getting deployed
+
+Task 2: required during scheduling
+
+remove label first 
+kubectl label nodes <node_name> disktype-
+
+
+vi aff-na-pod2.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: na-nginx-pod2
+spec:
+  containers:
+  - name: na-nginx-ctr2
+    image: nginx
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: disktype
+            operator: In
+            values:
+            - ssd
+
+kubectl create -f aff-na-pod2.yaml
+
+pod is strictly looking for labeled node
+
+kubectl get pods -o wide
+kubectl label nodes <node_name> disktype=ssd
+
+once label is added pod will deployed
+
+---------------------------------------------------------------------
+Task 2: Pod Affinity
+---------------------------------------------------------------------
+
+vi depend-pod.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pa-nginx-pod1
+  labels:
+    app: pa-nginx-app
+spec:
+  containers:
+  - name: pa-nginx-ctr1
+    image: nginx
+
+kubectl create -f depend-pod.yaml
+kubectl get pods
+
+---------------------------------------------------------------------
+Task 3: create pod with pod affinity
+---------------------------------------------------------------------
+vi aff-pa-pod2.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pa-nginx-pod2
+spec:
+  containers:
+  - name: pa-nginx-ctr2
+    image: nginx
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: app
+            operator: In
+            values:
+            - pa-nginx-app
+        topologyKey: kubernetes.io/hostname
+
+kubectl create -f aff-pa-pod2.yaml
+
+kubectl get pods -o wide
+both pod are in same node
+
+---------------------------------------------------------------------
+Task 4: pod anti affinity
+---------------------------------------------------------------------
+
+vi pod-antiaff.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+spec:
+  selector:
+    matchLabels:
+      app: nginx
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - pa-nginx-app
+            topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: nginx
+        image: nginx
+
+kubectl create -f  pod-antiaff.yaml
+kubectl get pod -o wide 
+
+
+kubectl delete -f  pod-antiaff.yaml
+ 
