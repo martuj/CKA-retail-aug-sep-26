@@ -2880,3 +2880,309 @@ helm install mychart2 ./myapp1
  
 helm uninstall mychart2
 =====================================================
+--------------------
+1.Static pod
+--------------------
+What Are Static Pods?
+A Static Pod is a pod that is directly managed by the kubelet on a specific node rather than by the Kubernetes API server.Unlike regular pods, which are created and managed through Kubernetes objects such as Deployments or StatefulSets, static pods are defined using local manifest files stored on the node. The kubelet continuously monitors these files and ensures that the specified pods remain running.
+
+
+The lifecycle of a static pod is controlled entirely by the kubelet:
+------------------------------------
+A pod manifest file is placed in a configured directory on the node.
+The kubelet watches the directory for changes.
+Upon detecting a new manifest, the kubelet creates the pod.
+If the pod crashes or is deleted, the kubelet recreates it automatically.
+If the manifest file is removed, the pod is terminated.
+
+Advantages:
+---------------------
+Bootstrapping Core Components: Used by tools like kubeadm to run core control plane components (etcd, kube-apiserver, kube-scheduler) as containers before the cluster is fully operational.
+High Availability: Perfect for node-level agents or security logs that must run even during total control plane outages.
+
+Limitations:
+---------------------------------------
+1.No Scheduler Support
+Static pods are permanently bound to a specific node.
+
+2.Limited API Management
+You cannot manage them using standard Kubernetes controllers like Deployments or ReplicaSets.
+
+3.No Rolling Updates
+Updates require manual modification of manifest files.
+
+4.Reduced Flexibility
+Features such as autoscaling, advanced scheduling, and controller-based lifecycle management are unavailable.
+---------------------------------------
+1. Identify the Manifest Path
+The kubelet configuration file (usually /var/lib/kubelet/config.yaml) defines the directory it watches via the staticPodPath field.
+
+staticPodPath: /etc/kubernetes/manifests
+
+2. Create the Pod Spec
+Navigate to that directory and create a standard Pod YAML file. For example, create /etc/kubernetes/manifests/nginx-static.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: static-web
+  labels:
+    role: myrole
+spec:
+  containers:
+    - name: web
+      image: nginx
+      ports:
+        - name: web
+          containerPort: 80
+
+
+The moment you save this file, the kubelet will detect it and spin up the container.You should see a mirror pod similar to: static-web-controlplane
+ kubectl get pods -A
+
+you must physically delete or move the YAML file out of the /etc/kubernetes/manifests folder on that specific machine.
+
+rm /etc/kubernetes/manifests/nginx-static.yaml
+===============================================================================================================================
+2.Headless Service in Kubernetes
+===============================================================================================================================
+
+What happens with a Headless Service?
+------------------------------------------
+No ClusterIP is allocated.
+kube-proxy does not handle the Service.
+Kubernetes does not provide load balancing or proxying for the Service.
+DNS returns the individual Pod IPs, allowing clients to discover and communicate with Pods directly.
+
+
+Why use Headless Services?
+-----------------------------------
+Headless Services are especially useful for stateful applications and service discovery.
+When combined with a StatefulSet, each Pod can have a stable and predictable network identity, for example:
+
+pod-0.my-service.my-namespace.svc.cluster.local
+
+This makes it possible for applications to communicate with a specific Pod rather than being routed to a random backend.
+
+
+Common Use Cases
+----------------
+Headless Services are ideal for distributed systems such as:
+
+MySQL
+Kafka
+Cassandra
+Other databases and message queues
+These applications often need nodes to communicate directly with specific peers for replication, clustering, leader election, or other distributed operations.
+
+A regular Service provides a stable virtual IP and load balancing. A Headless Service provides DNS-based service discovery of individual Pods, giving the application more control over which Pod it communicates with.
+
+vi headless-service.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-headless-service
+  namespace: default
+spec:
+  clusterIP: None
+  selector:
+    app: my-app
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+
+
+vi headless-pod.yml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-app-pod
+  labels:
+    app: my-app
+spec:
+  containers:
+    - name: my-app
+      image: nginx
+      ports:
+        - containerPort: 8080
+
+kubectl apply -f headless-pod.yml
+
+kubectl apply -f headless-service.yaml
+
+kubectl get svc
+kubectl describe svc my-headless-service
+
+Pods can be accessed using: 
+my-headless-service.default.svc.cluster.local
+
+or StatefulSets, each pod gets a unique DNS entry, such as:
+pod-0.my-headless-service.default.svc.cluster.local
+pod-1.my-headless-service.default.svc.cluster.local
+pod-2.my-headless-service.default.svc.cluster.local
+
+
+Common Use Cases
+StatefulSets (MongoDB, Cassandra, Kafka, Elasticsearch)
+Service discovery
+Direct pod-to-pod communication
+Database clusters where clients need awareness of individual nodes
+==============================================================
+3. HPA
+================================================================
+
+Task:4 Deployment
+---------------------------------------------------------
+vi dep-nginx.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-dep
+  labels:
+    app: nginx-dep
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1  # maxUnavailable: 1 → at most one pod can be unavailable during updates.
+      maxSurge: 1   # maxSurge: 1 → Kubernetes can create one extra pod above the desired replica count during updates.
+  selector:
+    matchLabels:
+      app: nginx-app
+  template:
+    metadata:
+      labels:
+        app: nginx-app
+    spec:
+      containers:
+        - name: nginx-ctr
+          image: nginx:1.11
+          ports:
+            - containerPort: 80
+
+
+kubectl apply -f dep-nginx.yaml
+
+kubectl get deployments
+kubectl get rs
+kubectl get pod -w
+
+=============================================================
+Lab 3: HorizontalPodAutoscaler (HPA)
+=============================================================
+# Install Metrics Server on a  cluste ( Metrics Server deployed and configured) . The Kubernetes Metrics Server collects resource metrics from the kubelets in your cluster, 
+# and exposes those metrics through the Kubernetes API, using an APIService to add new kinds of resource that represent metric readings. run the following command
+
+ kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+# Create deployment and service
+
+
+ubuntu@kops:~$ vi  php-apache.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: php-apache
+spec:
+  selector:
+    matchLabels:
+      run: php-apache
+  template:
+    metadata:
+      labels:
+        run: php-apache
+    spec:
+      containers:
+      - name: php-apache
+        image: registry.k8s.io/hpa-example
+        ports:
+        - containerPort: 80
+        resources:
+          limits:
+            cpu: 500m
+          requests:
+            cpu: 200m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: php-apache
+  labels:
+    run: php-apache
+spec:
+  ports:
+  - port: 80
+  selector:
+    run: php-apache
+
+# save the file and run it
+
+kubectl apply -f php-apache.yaml
+
+# Create the HorizontalPodAutoscaler
+kubectl autoscale deployment php-apache --cpu=50% --min=1 --max=10
+
+# You can check the current status of the newly-made HorizontalPodAutoscaler, by running:
+kubectl get hpa
+
+#Increase the load 
+kubectl run -i --tty load-generator --rm --image=busybox:1.28 --restart=Never -- /bin/sh -c "while sleep 0.01; do wget -q -O- http://php-apache; done"
+# to stop metric pres ctrl+c
+
+# open another window and run this
+#Here, CPU consumption has increased to 305% of the request. As a result, the Deployment was resized to 7 replicas:
+kubectl get hpa php-apache --watch
+
+# open one more window
+kubectl get deployment php-apache
+
+---------------------------------------------------------------------------------------------
+
+================= =============================================================================
+Task-2 get the YAML of your HorizontalPodAutoscaler in the autoscaling/v2
+----------------------------------------------------------------------------------------------
+
+kubectl get hpa php-apache -o yaml > /tmp/hpa-v2.yaml
+
+Open the /tmp/hpa-v2.yaml file in an editor, and you should see YAML which looks like this:
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: php-apache
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: php-apache
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 50
+status:
+  observedGeneration: 1
+  lastScaleTime: <some-time>
+  currentReplicas: 1
+  desiredReplicas: 1
+  currentMetrics:
+  - type: Resource
+    resource:
+      name: cpu
+      current:
+        averageUtilization: 0
+        averageValue: 0
+
+------------------------------------------------------------------------
+
+
