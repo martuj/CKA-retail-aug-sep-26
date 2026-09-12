@@ -1,0 +1,204 @@
+1. Pod Not Starting / Stuck in Pending State
+What is a Pod Pending State?
+A Pod in the Pending state means Kubernetes has accepted the Pod, but it hasn’t been scheduled to a node yet. This usually happens because the cluster doesn’t have enough resources, the node doesn’t meet the scheduling requirements, or storage isn’t ready.
+
+Quick Tip: A Pending pod isn’t failing — it is simply waiting for the required conditions before it can start.
+
+Common Symptoms
+You may notice one or more of the following:
+
+Pod status remains Pending
+No container is created
+No application logs are generated
+Deployment rollout is stuck
+Events show scheduling failures
+
+
+How to Fix the Problem
+Check and adjust CPU and memory requests/limits.
+Ensure worker nodes are Ready and have sufficient resources.
+Fix scheduling issues such as taints, tolerations, nodeSelector, and affinity rules.
+Resolve image pull issues or correct invalid image names.
+Resolve PVC or storage-related issues if applicable.
+
+
+========================
+2. CrashLoopBackOff
+Symptoms
+The pod keeps restarting repeatedly.
+The restart count keeps increasing.
+The application never reaches the Ready state.
+Common Causes
+The application crashes during startup.
+Required environment variables are missing or incorrect.
+The application cannot connect to the database or another external service.
+The startup command or entrypoint is incorrect.
+The liveness probe keeps failing, causing Kubernetes to restart the container.
+The container is terminated due to an Out of Memory (OOMKilled) error.
+How to Diagnose
+Start by checking the application logs:
+
+kubectl logs <pod>
+If the container has already restarted, check the logs from the previous instance:
+
+kubectl logs <pod> --previous
+Then inspect the pod events to identify the exact reason for the restarts:
+
+kubectl describe pod <pod>
+How to Fix It
+Check application logs and fix the root cause.
+Fix incorrect liveness and readiness probe configurations.
+Increase memory or CPU limits if the container is OOMKilled.
+Verify ConfigMaps, Secrets, and environment variables.
+Roll back to the previous working application version if the issue started after a deployment.
+
+============================================
+
+3. ImagePullBackOff / ErrImagePull
+What is ImagePullBackOff?
+ImagePullBackOff or ErrImagePull means Kubernetes is unable to download the container image from the container registry. As a result, the Pod cannot start.
+
+Quick Tip:
+ErrImagePull = Kubernetes failed to pull the image.
+ImagePullBackOff = Kubernetes is retrying to pull the image with increasing delays (backoff).
+
+Symptoms
+Pod remains in ImagePullBackOff or ErrImagePull state.
+Container never starts.
+Pod status stays in Pending or ContainerCreating.
+Events show image pull failures.
+Example
+
+NAME        READY   STATUS             RESTARTS   AGE
+nginx-pod   0/1     ImagePullBackOff   0          2m
+Common Causes
+Incorrect image name.
+Incorrect image tag.
+Private registry authentication failure.
+Missing or incorrect imagePullSecrets.
+Registry is unreachable due to network issues.
+Image has been deleted or doesn’t exist in the registry.
+How to Diagnose
+1. Describe the Pod
+kubectl describe pod <pod-name> -n <namespace>
+Check the Events section for errors such as:
+
+Failed to pull image
+ImagePullBackOff
+ErrImagePull
+Unauthorized
+manifest unknown
+2. Verify the Image Name and Tag
+Check that the image name, repository, and tag are correct.
+
+Example:
+
+image: nginx:1.27
+A typo in the image name or tag will cause the pull to fail.
+
+3. Check ImagePullSecrets
+kubectl get secret
+Verify that the Pod references the correct secret:
+
+imagePullSecrets:
+- name: regcre
+4. Validate Registry Credentials
+Ensure the Docker registry credentials are valid and haven’t expired.
+
+5. Test Registry Connectivity
+Verify that the worker node can reach the container registry.
+
+Examples:
+
+ping <registry-url>
+curl https://<registry-url>
+How to Fix It
+Correct the image name and tag.
+Create or update the imagePullSecrets.
+Ensure registry credentials are valid.
+For private registries, verify authentication, TLS, and network connectivity.
+Pre-pull the image on worker nodes if required (for restricted environments).
+Push the image again if it has been deleted or is missing.
+
+============================================
+4. Service Not Accessible
+What is a Service Not Accessible Issue?
+A Service Not Accessible issue occurs when an application running inside a Pod cannot be reached through its Kubernetes Service. The problem may be due to an incorrect Service configuration, missing endpoints, network restrictions, or an issue with the LoadBalancer.
+
+Quick Tip:
+If the Service has no Endpoints, it usually means the Service selector doesn’t match any running Pods.
+If the Endpoints exist, check the network path (NetworkPolicy, firewall, or LoadBalancer).
+
+Symptoms
+Application cannot be reached.
+Service is inaccessible from inside or outside the cluster.
+Requests to the Service fail or time out.
+Service exists, but traffic is not reaching the Pods.
+Example
+
+NAME         TYPE        CLUSTER-IP      PORT(S)
+web-service  ClusterIP   10.96.120.15    80/TCP
+Common Causes
+Incorrect Service selector.
+No matching Pod labels.
+Missing Endpoints.
+NetworkPolicy blocking traffic.
+Firewall restrictions.
+LoadBalancer or Ingress configuration issue.
+How to Diagnose
+1. Check the Service
+kubectl get svc -n <namespace>
+Verify:
+
+Service type
+ClusterIP
+Port
+TargetPort
+2. Check Service Endpoints
+kubectl get endpoints <service-name> -n <namespace>
+
+## Expected output:
+NAME          ENDPOINTS
+web-service   10.244.1.15:8080
+If the output shows:
+
+<none>
+the Service isn’t selecting any Pods.
+
+3. Describe the Service
+kubectl describe svc <service-name> -n <namespace>
+Verify:
+
+Selector
+Ports
+TargetPort
+Events
+4. Verify Pod Labels
+kubectl get pods --show-labels
+Ensure the Pod labels match the Service selector.
+
+Example: Service
+
+selector:
+  app: nginx
+Pod
+
+labels:
+  app: nginx
+5. Check Network Policies
+kubectl get networkpolicy
+Ensure no NetworkPolicy is blocking incoming traffic.
+
+6. Verify Firewall / LoadBalancer
+For NodePort or LoadBalancer Services:
+
+Check firewall rules.
+Verify the external IP is assigned.
+Confirm the cloud LoadBalancer is healthy.
+How to Fix It
+Ensure the Pods are running and Service Endpoints exist.
+Verify the Service selector matches the Pod labels.
+Check the Service type (ClusterIP, NodePort, LoadBalancer, or Ingress).
+Update or fix NetworkPolicy rules.
+Verify firewall or security group settings.
+Check cloud provider or LoadBalancer configuration for external access.
