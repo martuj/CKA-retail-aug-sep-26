@@ -2879,3 +2879,4 @@ cd
 helm install mychart2 ./myapp1
  
 helm uninstall mychart2
+=====================================================
