@@ -2500,12 +2500,11 @@ Lab 14: Installing WordPress with Helm
 
 Lab: 1 Install Helm in kubernetes Cluster 
 ===========================================
+# Install Helm using script
 
-wget https://get.helm.sh/helm-v3.5.0-rc.2-linux-amd64.tar.gz
-
-tar -xzvf  helm-v3.5.0-rc.2-linux-amd64.tar.gz
-
-mv linux-amd64/helm /bin
+curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4
+chmod 700 get_helm.sh
+./get_helm.sh
 
 helm version
 
